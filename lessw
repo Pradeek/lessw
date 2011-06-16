@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+
+var path = require('path'),
+	fs = require('fs'),
+	sys = require('sys'),
+	less = require('less');
+	
+var directories = [],
+	files = [];
+	
+if(process.argv.length < 4) {
+	sys.puts("USAGE lessw SRC_DIR TARGET_DIR -x(compress/optional)");
+	process.exit(1);
+}
+
+var args = process.argv.slice(2),
+	srcDir = args[0],
+	targetDir = args[1],
+	compress = (args[2] === '-x') ? true : false,
+	checkInterval = 1000;
+	
+if(fs.statSync(srcDir).isDirectory() === false) {
+	sys.puts("Source ");
+	process.exit(1);
+}
+
+if(fs.statSync(targetDir).isDirectory() === false) {
+	sys.puts("Target should be a directory");
+	process.exit(1);
+}
+
+function writeFile(src) {
+	fs.readFile(src, 'utf-8', function (error, data) {
+		if(error) {
+			sys.puts("Error reading file : " + src + " : " + error.message);
+		} else {
+			var parser = new(less.Parser)({
+				paths : [path.dirname(src)],
+				filename : src
+			});
+			parser.parse(data, function (error, tree) {
+				if(error) {
+					less.writeError(error);
+				} else {
+					try {
+						var css = tree.toCSS({ compress : compress }),
+							outputFile = "",
+							baseDir = targetDir,
+							baseDirs = []; 
+							
+						var base = path.dirname(src);
+						while(base !== srcDir) {
+							var temp = path.basename(base);
+							baseDirs.push(temp); 
+							outputFile = temp + "/"  + outputFile; 
+							base = path.dirname(base); 
+						} 
+						
+						baseDirs.reverse();
+						baseDirs.forEach(function(dir) {
+							baseDir = path.join(baseDir, dir);
+							if(!path.existsSync(baseDir)) {
+								fs.mkdirSync(baseDir, 0777);
+							}
+						});
+							
+						outputFile = path.join(targetDir, outputFile, path.basename(src, '.less') + ".css");
+						var fd = fs.openSync(outputFile, "w");
+						fs.writeSync(fd, css, 0);
+						sys.puts("Compiled file : " + path.basename(src) + " to " + outputFile);
+					} catch(ex) {
+						less.writeError(ex);
+					}
+				}
+			});
+		}
+	});
+}
+
+function compileFile(file) {
+	writeFile(file);
+	fs.watchFile(file, function (curr, prev) {
+		sys.puts(prev);
+		if(curr.mtime.getTime() !== prev.mtime.getTime()) {
+			writeFile(file);
+		}
+	});
+}	
+
+function findLessFiles(file, src) {
+	var fullPath = path.join(src, file);
+	if(fs.statSync(fullPath).isDirectory() === true) {
+		sys.puts("Found new directory : " + file);
+		var entry = { dir : fullPath };
+		directories.push(entry);
+		checkDirectory(entry);
+	} else {
+		if(path.extname(fullPath) === ".less") {
+			if(files.indexOf(fullPath) === -1) {
+				sys.puts("Found new file : " + file);
+				files.push(fullPath);	
+				compileFile(fullPath);
+			}
+		}	
+	}
+}	
+	
+function checkDirectory (entry) {
+	var now = fs.statSync(entry.dir).mtime.getTime();
+	if(!entry.last || entry.last !== now) {
+		fs.readdirSync(entry.dir).forEach(function(file){
+			findLessFiles(file, entry.dir);
+		}); 
+	}
+	entry.last = now;
+}
+
+function checkDirectories () {
+	directories.forEach(checkDirectory);  
+}
+
+directories.push({ dir : srcDir });
+checkDirectories();
+setInterval(checkDirectories, checkInterval);

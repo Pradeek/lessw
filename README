@@ -1,0 +1,6 @@
+This utility monitors a particular folder and compiles all the .less files into css and saves them in the target folder specified. It also preserves the folder structure inside the specified source folder and creates a similar folder structure inside your target folder. 
+
+USAGE 
+lessw SOURCE_DIR TARGET_DIR
+
+Use -x if you want your output CSS to be minified.
